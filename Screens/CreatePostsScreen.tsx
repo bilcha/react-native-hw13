@@ -14,11 +14,9 @@ import {
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
-import { Camera, CameraType } from "expo-camera";
+import { CameraType, CameraView, useCameraPermissions } from "expo-camera";
 import GeoLocation from "../components/GeoLocation";
 import * as ImagePicker from "expo-image-picker";
-import * as Location from "expo-location";
-import * as MediaLibrary from "expo-media-library";
 
 import Button from "../components/Button";
 import { colors } from "../styles/global";
@@ -35,45 +33,35 @@ export default function CreatePostsScreen() {
   const [title, setTitle] = useState<string>("");
   const [location, setLocation] = useState("");
   const [geocode, setGeocode] = useState({});
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-  const [cameraRef, setCameraRef] = useState<Camera | null>(null);
-  const [type, setType] = useState<CameraType>("back");
+  const [permission, requestPermission] = useCameraPermissions();
+  const [facing, setFacing] = useState<CameraType>("back");
   const [isFocused, setIsFocused] = useState<string | null>(null);
   const [isSubmitActive, setSubmitActive] = useState(false);
+  const cameraRef = useRef();
 
   useEffect(() => {
     setSubmitActive(!!photo && !!location && !!title);
   }, [photo, location, title]);
 
-  useEffect(() => {
-    (async () => {
-      const cameraPermission = await Camera.getCameraPermissionsAsync();
-      const mediaLibraryPermission = await MediaLibrary.getPermissionsAsync();
-
-      if (
-        cameraPermission.status !== "granted" ||
-        mediaLibraryPermission.status !== "granted"
-      ) {
-        const { status } = await Camera.requestCameraPermissionsAsync();
-        const { status: mediaStatus } =
-          await MediaLibrary.requestPermissionsAsync();
-        setHasPermission(status === "granted" && mediaStatus === "granted");
-      } else {
-        setHasPermission(true);
-      }
-
-      console.log("Camera Permission:", cameraPermission.status);
-      console.log("Media Library Permission:", mediaLibraryPermission.status);
-    })();
-  }, []);
-
-  if (hasPermission) {
+  if (!permission) {
     return <Text>No access to camera</Text>;
+  }
+  if (!permission.granted) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.message}>
+          We need your permission to show the camera
+        </Text>
+        <Button onPress={requestPermission}>
+          <Text>Grant permission</Text>
+        </Button>
+      </View>
+    );
   }
 
   const makePhoto = async () => {
     if (cameraRef) {
-      const photoData = await cameraRef.takePictureAsync();
+      const photoData = await cameraRef?.current?.takePictureAsync();
       setPhoto(photoData.uri);
     }
   };
@@ -95,25 +83,25 @@ export default function CreatePostsScreen() {
       },
       createdAt: new Date().getTime(),
     };
-    console.log(`payloadData`);
+    console.log(`payloadData, ${JSON.stringify(payloadData)}`);
     cleanUp();
-    navigation.navigate("PostsScreen");
+    navigation.goBack();
   };
 
-  const pickImage = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status === "granted") {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.All,
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 1,
-      });
-      if (!result.canceled) {
-        setPhoto(result.assets[0].uri);
-      }
-    }
-  };
+  // const pickImage = async () => {
+  //   const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  //   if (status === "granted") {
+  //     const result = await ImagePicker.launchImageLibraryAsync({
+  //       mediaTypes: ImagePicker.MediaTypeOptions.All,
+  //       allowsEditing: true,
+  //       aspect: [4, 3],
+  //       quality: 1,
+  //     });
+  //     if (!result.canceled) {
+  //       setPhoto(result.assets[0].uri);
+  //     }
+  //   }
+  // };
 
   return (
     <ScrollView>
@@ -133,27 +121,32 @@ export default function CreatePostsScreen() {
               </TouchableOpacity>
             </ImageBackground>
           ) : (
-            <Camera style={styles.postPhotoWrap} type={type} ref={setCameraRef}>
+            <CameraView
+              ref={cameraRef}
+              style={styles.postPhotoWrap}
+              facing={facing}
+            >
               <MaterialCommunityIcons
                 name="camera-flip"
                 size={22}
                 color={colors.darkGrey}
                 style={styles.flipContainer}
                 onPress={() =>
-                  setType((current) => (current === "back" ? "front" : "back"))
+                  setFacing((current) =>
+                    current === "back" ? "front" : "back"
+                  )
                 }
               />
               <TouchableOpacity style={styles.cameraBtn} onPress={makePhoto}>
                 <Ionicons name="camera" size={24} color={colors.darkGrey} />
               </TouchableOpacity>
-            </Camera>
+            </CameraView>
           )}
 
-          <Text style={styles.textWrap}>
-            <Text style={styles.text} onPress={pickImage}>
-              {photo ? "Редагувати фото" : "Завантажте фото"}
-            </Text>
-          </Text>
+          {/* <Text style={styles.textWrap}> */}
+          {/* <Text style={styles.text} onPress={pickImage}>
+              {photo ? "Редагувати фото" : "Завантажте фото"} */}
+          <Text style={styles.textWrap}>Завантажте фото</Text>
 
           <KeyboardAvoidingView
             behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -202,7 +195,7 @@ export default function CreatePostsScreen() {
             onPress={createPayload}
             outerStyles={[styles.mainText, isSubmitActive && styles.activeBtn]}
           >
-            <Text>Опублікувати</Text>
+            <Text style={isSubmitActive && styles.activeBtn}>Опублікувати</Text>
           </Button>
           <TouchableOpacity
             style={styles.trashBtn}
@@ -309,5 +302,12 @@ const styles = StyleSheet.create({
     marginBottom: 45,
     marginLeft: "auto",
     marginRight: "auto",
+  },
+  message: {
+    textAlign: "center",
+    paddingBottom: 10,
+  },
+  camera: {
+    flex: 1,
   },
 });

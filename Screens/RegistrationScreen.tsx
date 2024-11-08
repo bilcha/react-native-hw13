@@ -36,7 +36,7 @@ const RegistrationScreen = () => {
     setPassword(value);
   };
   const showPassword = () => {
-    setIsSecure((prev) => !prev);
+    setIsSecure((prev: Boolean) => !prev);
   };
   const handleRegistration = () => {
     console.log(

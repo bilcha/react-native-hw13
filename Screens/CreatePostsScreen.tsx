@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ScrollView,
   StyleSheet,
@@ -13,37 +13,163 @@ import {
   Platform,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { Ionicons, Feather } from "@expo/vector-icons";
+import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Camera, CameraType } from "expo-camera";
+import GeoLocation from "../components/GeoLocation";
+import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location";
+import * as MediaLibrary from "expo-media-library";
+
 import Button from "../components/Button";
 import { colors } from "../styles/global";
 
+interface GeoLocation {
+  latitude: number;
+  longitude: number;
+}
+
 export default function CreatePostsScreen() {
   const navigation = useNavigation();
-  const handlePublish = () => {
-    console.log("Published");
+
+  const [photo, setPhoto] = useState<string>("");
+  const [title, setTitle] = useState<string>("");
+  const [location, setLocation] = useState("");
+  const [geocode, setGeocode] = useState({});
+  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  const [cameraRef, setCameraRef] = useState<Camera | null>(null);
+  const [type, setType] = useState<CameraType>("back");
+  const [isFocused, setIsFocused] = useState<string | null>(null);
+  const [isSubmitActive, setSubmitActive] = useState(false);
+
+  useEffect(() => {
+    setSubmitActive(!!photo && !!location && !!title);
+  }, [photo, location, title]);
+
+  useEffect(() => {
+    (async () => {
+      const cameraPermission = await Camera.getCameraPermissionsAsync();
+      const mediaLibraryPermission = await MediaLibrary.getPermissionsAsync();
+
+      if (
+        cameraPermission.status !== "granted" ||
+        mediaLibraryPermission.status !== "granted"
+      ) {
+        const { status } = await Camera.requestCameraPermissionsAsync();
+        const { status: mediaStatus } =
+          await MediaLibrary.requestPermissionsAsync();
+        setHasPermission(status === "granted" && mediaStatus === "granted");
+      } else {
+        setHasPermission(true);
+      }
+
+      console.log("Camera Permission:", cameraPermission.status);
+      console.log("Media Library Permission:", mediaLibraryPermission.status);
+    })();
+  }, []);
+
+  if (hasPermission) {
+    return <Text>No access to camera</Text>;
+  }
+
+  const makePhoto = async () => {
+    if (cameraRef) {
+      const photoData = await cameraRef.takePictureAsync();
+      setPhoto(photoData.uri);
+    }
+  };
+
+  const cleanUp = () => {
+    setPhoto("");
+    setTitle("");
+    setLocation("");
+    setGeocode({});
+  };
+
+  const createPayload = async () => {
+    const payloadData = {
+      photo: photo,
+      title,
+      location: {
+        geo: geocode,
+        name: location,
+      },
+      createdAt: new Date().getTime(),
+    };
+    console.log(`payloadData`);
+    cleanUp();
+    navigation.navigate("PostsScreen");
+  };
+
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status === "granted") {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 1,
+      });
+      if (!result.canceled) {
+        setPhoto(result.assets[0].uri);
+      }
+    }
   };
 
   return (
     <ScrollView>
+      <GeoLocation setLocation={setLocation} setGeocode={setGeocode} />
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={styles.container}>
-          <ImageBackground style={styles.postPhotoWrap}>
-            <TouchableOpacity style={[styles.cameraBtn]}>
-              <Ionicons name="camera" size={24} color={colors.darkGrey} />
-            </TouchableOpacity>
-          </ImageBackground>
+          {photo ? (
+            <ImageBackground
+              source={{ uri: photo }}
+              style={styles.postPhotoWrap}
+            >
+              <TouchableOpacity
+                style={{ ...styles.cameraBtn }}
+                onPress={() => setPhoto("")}
+              >
+                <Ionicons name="camera" size={24} color={colors.white} />
+              </TouchableOpacity>
+            </ImageBackground>
+          ) : (
+            <Camera style={styles.postPhotoWrap} type={type} ref={setCameraRef}>
+              <MaterialCommunityIcons
+                name="camera-flip"
+                size={22}
+                color={colors.darkGrey}
+                style={styles.flipContainer}
+                onPress={() =>
+                  setType((current) => (current === "back" ? "front" : "back"))
+                }
+              />
+              <TouchableOpacity style={styles.cameraBtn} onPress={makePhoto}>
+                <Ionicons name="camera" size={24} color={colors.darkGrey} />
+              </TouchableOpacity>
+            </Camera>
+          )}
 
           <Text style={styles.textWrap}>
-            <Text style={styles.text}>Завантажте фото</Text>
+            <Text style={styles.text} onPress={pickImage}>
+              {photo ? "Редагувати фото" : "Завантажте фото"}
+            </Text>
           </Text>
 
           <KeyboardAvoidingView
-            behavior={Platform.OS == "ios" ? "padding" : "height"}
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
           >
             <TextInput
               placeholder="Назва..."
               placeholderTextColor={colors.darkGrey}
-              style={[styles.input]}
+              style={
+                isFocused === "title"
+                  ? { ...styles.input, borderColor: colors.accentOrange }
+                  : styles.input
+              }
+              value={title}
+              onChangeText={setTitle}
+              onFocus={() => setIsFocused("title")}
+              onBlur={() => setIsFocused(null)}
             />
             <View>
               <Feather
@@ -55,14 +181,34 @@ export default function CreatePostsScreen() {
               <TextInput
                 placeholder="Місцевість..."
                 placeholderTextColor={colors.darkGrey}
-                style={{ ...styles.input, marginBottom: 32, paddingLeft: 28 }}
+                style={
+                  isFocused === "location"
+                    ? {
+                        ...styles.input,
+                        marginBottom: 32,
+                        paddingLeft: 28,
+                        borderColor: colors.accentOrange,
+                      }
+                    : { ...styles.input, marginBottom: 32, paddingLeft: 28 }
+                }
+                value={location}
+                onChangeText={setLocation}
+                onFocus={() => setIsFocused("location")}
+                onBlur={() => setIsFocused(null)}
               />
             </View>
           </KeyboardAvoidingView>
-          <Button onPress={handlePublish}>
-            <Text style={[styles.btnText, styles.mainText]}>Опублікувати</Text>
+          <Button
+            onPress={createPayload}
+            outerStyles={[styles.mainText, isSubmitActive && styles.activeBtn]}
+          >
+            <Text>Опублікувати</Text>
           </Button>
-          <TouchableOpacity style={styles.trashBtn}>
+          <TouchableOpacity
+            style={styles.trashBtn}
+            onPress={cleanUp}
+            disabled={!photo && !title && !location}
+          >
             <Feather name="trash-2" size={24} color={colors.darkGrey} />
           </TouchableOpacity>
         </View>
@@ -95,11 +241,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  photo: {
-    width: "100%",
-    height: "100%",
-    borderRadius: 8,
-  },
+
   cameraBtn: {
     width: 60,
     height: 60,
@@ -127,6 +269,11 @@ const styles = StyleSheet.create({
     color: colors.darkText,
     fontSize: 16,
   },
+  flipContainer: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+  },
   locationIcon: {
     position: "absolute",
     top: 10,
@@ -147,6 +294,10 @@ const styles = StyleSheet.create({
     width: "100%",
     justifyContent: "center",
     alignItems: "center",
+  },
+  activeBtn: {
+    backgroundColor: colors.accentOrange,
+    color: colors.white,
   },
   trashBtn: {
     width: 70,
